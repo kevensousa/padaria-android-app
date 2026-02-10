@@ -2,19 +2,11 @@
 import React, { createContext, useState, useContext } from 'react';
 import { products } from '../data/products'; 
 
-// =========================================================
-// ITENS INICIAIS (APENAS PARA TESTE)
-// Mude para 'useState([])' antes de finalizar!
-const initialCartItems = [
-  { ...products[0], quantity: 2 }, 
-  { ...products[1], quantity: 1 }, 
-];
-// =========================================================
-
 export const CartContext = createContext();
 
 export const CartProvider = ({ children }) => {
-  const [cartItems, setCartItems] = useState(initialCartItems); 
+  // Alterado para iniciar vazio [], removendo os itens de teste
+  const [cartItems, setCartItems] = useState([]); 
 
   const addToCart = (product) => {
     const existingItem = cartItems.find(item => item.id === product.id);
@@ -52,6 +44,11 @@ export const CartProvider = ({ children }) => {
     }
   };
 
+  // Função extra para você usar no CheckoutScreen após finalizar a compra
+  const clearCart = () => {
+    setCartItems([]);
+  };
+
   const cartTotal = cartItems.reduce(
     (total, item) => total + item.price * item.quantity, 0
   );
@@ -63,6 +60,7 @@ export const CartProvider = ({ children }) => {
         addToCart,
         removeFromCart,
         decreaseQuantity,
+        clearCart, // Adicionado ao Provider
         cartTotal,
       }}
     >
