@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Importação necessária
 import { useCart } from '../context/CartContext';
 
 const CheckoutScreen = ({ navigation }) => {
@@ -14,11 +15,47 @@ const CheckoutScreen = ({ navigation }) => {
   const [pagamento, setPagamento] = useState('Pix'); 
   const [observacoes, setObservacoes] = useState('');
 
-  // Estados de Endereço (Novos)
+  // Estados de Endereço
   const [rua, setRua] = useState('');
   const [numero, setNumero] = useState('');
   const [cidade, setCidade] = useState(''); 
   const [cep, setCep] = useState('');
+
+  // --- LOGICA DE PERSISTÊNCIA (MELHORIA 2) ---
+
+  // 1. Carregar dados ao montar a tela
+  useEffect(() => {
+    const carregarDadosSalvos = async () => {
+      try {
+        const dadosJSON = await AsyncStorage.getItem('@PaoQuente:dados_cliente');
+        if (dadosJSON !== null) {
+          const dados = JSON.parse(dadosJSON);
+          setNome(dados.nome || '');
+          setTelefone(dados.telefone || '');
+          setRua(dados.rua || '');
+          setNumero(dados.numero || '');
+          setCidade(dados.cidade || '');
+          setCep(dados.cep || '');
+        }
+      } catch (e) {
+        console.log('Erro ao carregar dados:', e);
+      }
+    };
+
+    carregarDadosSalvos();
+  }, []);
+
+  // 2. Função para salvar os dados
+  const salvarDadosNoCelular = async () => {
+    try {
+      const dadosParaSalvar = { nome, telefone, rua, numero, cidade, cep };
+      await AsyncStorage.setItem('@PaoQuente:dados_cliente', JSON.stringify(dadosParaSalvar));
+    } catch (e) {
+      console.log('Erro ao salvar dados:', e);
+    }
+  };
+
+  // --- MÁSCARAS ---
 
   const aplicarMascaraTelefone = (valor) => {
     const apenasNumeros = valor.replace(/\D/g, '').slice(0, 11);
@@ -27,24 +64,30 @@ const CheckoutScreen = ({ navigation }) => {
     return `(${apenasNumeros.slice(0, 2)}) ${apenasNumeros.slice(2, 7)}-${apenasNumeros.slice(7)}`;
   };
 
+  const aplicarMascaraCEP = (valor) => {
+    const apenasNumeros = valor.replace(/\D/g, '').slice(0, 8);
+    if (apenasNumeros.length <= 5) return apenasNumeros;
+    return `${apenasNumeros.slice(0, 5)}-${apenasNumeros.slice(5)}`;
+  };
+
   const handleFinalizarPedido = () => {
     const isDelivery = entrega.includes('Delivery');
     
-    // Validação de Dados Básicos
     if (!nome.trim() || telefone.length < 14) {
       Alert.alert('Atenção', 'Por favor, preencha nome e telefone com DDD.');
       return;
     }
 
-    // Validação de Endereço se for Delivery
-    if (isDelivery && (!rua.trim() || !numero.trim())) {
-      Alert.alert('Atenção', 'Para entrega, informe pelo menos a rua e o número.');
+    if (isDelivery && (!rua.trim() || !numero.trim() || !cidade.trim())) {
+      Alert.alert('Atenção', 'Para entrega, informe rua, número e cidade.');
       return;
     }
 
+    // SALVA OS DADOS ANTES DE FINALIZAR
+    salvarDadosNoCelular();
+
     const valorFinal = isDelivery ? cartTotal + 5 : cartTotal;
 
-    // Montagem da Mensagem (Recuperada e Ampliada)
     let mensagemPedido = `*PEDIDO: PANIFICADORA PÃO QUENTE*\n`;
     mensagemPedido += `------------------------------\n`;
     mensagemPedido += `*Cliente:* ${nome}\n`;
@@ -67,13 +110,12 @@ const CheckoutScreen = ({ navigation }) => {
     
     mensagemPedido += `\n*TOTAL A PAGAR: R$ ${valorFinal.toFixed(2)}*`;
 
-    // Retorno no LOG (Recuperado)
     console.log("=== NOVO PEDIDO RECEBIDO ===");
     console.log(mensagemPedido);
 
     Alert.alert(
       'Pedido Realizado!',
-      'O Pedido foi enviado com sucesso. Obrigado por comprar conosco!',
+      'O Pedido foi enviado com sucesso. Seus dados foram salvos para a próxima compra!',
       [{
         text: 'OK',
         onPress: () => {
@@ -88,7 +130,6 @@ const CheckoutScreen = ({ navigation }) => {
     <ScrollView style={styles.container}>
       <Text style={styles.header}>Finalizar Pedido</Text>
 
-      {/* Seção 1: Dados Pessoais */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>1. Seus Dados</Text>
         <TextInput style={styles.input} placeholder="Nome Completo" value={nome} onChangeText={setNome} />
@@ -98,10 +139,10 @@ const CheckoutScreen = ({ navigation }) => {
           value={telefone} 
           onChangeText={(t) => setTelefone(aplicarMascaraTelefone(t))}
           keyboardType="numeric"
+          maxLength={15}
         />
       </View>
 
-      {/* Seção 2: Entrega e Endereço Dinâmico */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>2. Entrega</Text>
         {['Retirada na Loja', 'Delivery (+ R$ 5,00)'].map(option => (
@@ -116,14 +157,20 @@ const CheckoutScreen = ({ navigation }) => {
             <TextInput style={styles.input} placeholder="Rua / Avenida" value={rua} onChangeText={setRua} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <TextInput style={[styles.input, { width: '30%' }]} placeholder="Nº" value={numero} onChangeText={setNumero} keyboardType="numeric" />
-              <TextInput style={[styles.input, { width: '65%' }]} placeholder="CEP" value={cep} onChangeText={setCep} keyboardType="numeric" />
+              <TextInput 
+                style={[styles.input, { width: '65%' }]} 
+                placeholder="CEP" 
+                value={cep} 
+                onChangeText={(t) => setCep(aplicarMascaraCEP(t))}
+                keyboardType="numeric"
+                maxLength={9}
+              />
             </View>
             <TextInput style={styles.input} placeholder="Cidade" value={cidade} onChangeText={setCidade} />
           </View>
         )}
       </View>
 
-      {/* Seção 3: Pagamento */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>3. Pagamento</Text>
         {['Pix', 'Dinheiro', 'Cartão'].map(option => (
@@ -134,7 +181,6 @@ const CheckoutScreen = ({ navigation }) => {
         ))}
       </View>
 
-      {/* Seção 4: Observações (Recuperado) */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>4. Observações</Text>
         <TextInput
@@ -163,7 +209,7 @@ const styles = StyleSheet.create({
   header: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginVertical: 15, color: '#663521' },
   section: { backgroundColor: '#fff', padding: 15, borderRadius: 8, marginBottom: 15 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: '#663521' },
-  input: { borderWidth: 1, borderColor: '#ccc', padding: 10, borderRadius: 5, marginBottom: 10 },
+  input: { borderWidth: 1, borderColor: '#ccc', padding: 10, borderRadius: 5, marginBottom: 10, color: '#000' },
   inputArea: { borderWidth: 1, borderColor: '#ccc', padding: 10, borderRadius: 5, height: 80, textAlignVertical: 'top' },
   addressArea: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10 },
   option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
